@@ -41,6 +41,6 @@ def solar_declination(JD):
     
     return declination_degrees
 
-# Example usage:
+#usage:
 declination = solar_declination(jd)
 print(f"Solar declination for JD {jd} is {declination:.2f} degrees")
