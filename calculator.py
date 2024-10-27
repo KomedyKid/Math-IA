@@ -222,7 +222,7 @@ def calculate_prayer_times(Y, M, D, latitude, longitude, timezone_offset, asr_me
     h_asr = math.degrees(h_asr_rad)
 
     # Now calculate the prayer time for Asr
-    prayer_time = calculate_prayer_time(-h_asr, latitude, declination, SolarNoon, before_noon=False)
+    prayer_time = calculate_prayer_time(h_asr, latitude, declination, SolarNoon, before_noon=False)
     prayer_times['Asr'] = prayer_time
 
     # Maghrib
