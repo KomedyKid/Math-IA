@@ -1,7 +1,7 @@
 import math
 import tkinter as tk
 from tkinter import messagebox
-from datetime import datetime
+from datetime import datetime, timedelta
 import requests
 from timezonefinder import TimezoneFinder
 import pytz
@@ -142,11 +142,13 @@ def calculate_prayer_time(h, phi, delta, SolarNoon, before_noon=True):
 
     return prayer_time
 
-def calculate_prayer_times(Y, M, D, latitude, longitude, timezone_offset, asr_method='Standard'):
+def calculate_prayer_times(Y, M, D, latitude, longitude, timezone_offset, asr_method='Standard', convention='MWL', is_ramadan=False):
     # Y, M, D: date
     # latitude, longitude: observer's location in degrees
     # timezone_offset: in hours (e.g., UTC+4 => timezone_offset = 4)
     # asr_method: 'Standard' for shadow ratio 1, 'Hanafi' for shadow ratio 2
+    # convention: calculation convention for Fajr and Isha
+    # is_ramadan: boolean indicating if it's Ramadan (affects Umm al-Qura calculation)
 
     hour, minute, second = 0, 0, 0  # Set time to midnight
 
@@ -160,14 +162,31 @@ def calculate_prayer_times(Y, M, D, latitude, longitude, timezone_offset, asr_me
 
     SolarNoon = calculate_solar_noon(longitude, EoT_min, timezone_offset)
 
+    # Define prayer angles based on the selected convention
+    conventions = {
+        'MWL': {'Fajr': 18.0, 'Isha': 17.0},  # Muslim World League
+        'ISNA': {'Fajr': 15.0, 'Isha': 15.0},  # Islamic Society of North America
+        'Egypt': {'Fajr': 19.5, 'Isha': 17.5},  # Egyptian General Authority of Survey
+        'Makkah': {'Fajr': 18.5, 'Isha': None},  # Umm al-Qura University, Makkah
+        'Karachi': {'Fajr': 18.0, 'Isha': 18.0},  # University of Islamic Sciences, Karachi
+        'Tehran': {'Fajr': 17.7, 'Isha': 14.0},  # Institute of Geophysics, University of Tehran
+    }
+
+    if convention not in conventions:
+        messagebox.showerror("Invalid Convention", "Selected convention is not recognized.")
+        return
+
+    fajr_angle = conventions[convention]['Fajr']
+    isha_angle = conventions[convention]['Isha']
+
     # Define prayer angles in degrees
     prayer_angles = {
-        'Fajr': -18.0,      # Angle for Fajr
+        'Fajr': -fajr_angle,      # Angle for Fajr
         'Sunrise': -0.833,  # Angle for Sunrise (includes atmospheric refraction)
         'Dhuhr': 0.0,       # Dhuhr at solar noon
         'Asr': None,        # Asr requires special calculation
         'Maghrib': -0.833,  # Angle for Maghrib (Sunset)
-        'Isha': -18.0       # Angle for Isha
+        'Isha': -isha_angle if isha_angle else None  # Angle for Isha or None if fixed time
     }
 
     prayer_times = {}
@@ -212,9 +231,20 @@ def calculate_prayer_times(Y, M, D, latitude, longitude, timezone_offset, asr_me
     prayer_times['Maghrib'] = prayer_time
 
     # Isha
-    h = prayer_angles['Isha']
-    prayer_time = calculate_prayer_time(h, latitude, declination, SolarNoon, before_noon=False)
-    prayer_times['Isha'] = prayer_time
+    if convention == 'Makkah':
+        # Umm al-Qura University, Makkah
+        if is_ramadan:
+            # 120 minutes after Maghrib during Ramadan
+            isha_time = prayer_times['Maghrib'] + 2.0  # 2 hours
+        else:
+            # 90 minutes after Maghrib
+            isha_time = prayer_times['Maghrib'] + 1.5  # 1.5 hours
+        isha_time = isha_time % 24
+        prayer_times['Isha'] = isha_time
+    else:
+        h = prayer_angles['Isha']
+        prayer_time = calculate_prayer_time(h, latitude, declination, SolarNoon, before_noon=False)
+        prayer_times['Isha'] = prayer_time
 
     return prayer_times
 
@@ -245,6 +275,15 @@ def get_timezone(latitude, longitude):
     timezone_str = tf.timezone_at(lng=longitude, lat=latitude)
     return timezone_str
 
+# Function to check if a date falls within Ramadan
+def is_ramadan(date_obj):
+    # For simplicity, define approximate Gregorian dates for Ramadan
+    # Ramadan dates vary each year; for accurate calculation, you may need to use an Islamic calendar library
+    # Here, we'll define Ramadan 2024 dates as an example
+    ramadan_start = datetime(2024, 3, 11)
+    ramadan_end = datetime(2024, 4, 9)
+    return ramadan_start <= date_obj <= ramadan_end
+
 # GUI Application
 def calculate_and_display_prayer_times():
     # Get inputs from user
@@ -272,10 +311,21 @@ def calculate_and_display_prayer_times():
         timezone = pytz.timezone(timezone_str)
         timezone_offset = timezone.utcoffset(datetime.now()).total_seconds() / 3600.0
     else:
-        timezone_offset = float(timezone_entry.get())
+        try:
+            timezone_offset = float(timezone_entry.get())
+        except ValueError:
+            messagebox.showerror("Invalid Timezone", "Please enter a valid number for timezone offset.")
+            return
+
+    convention = convention_var.get()
+
+    # Check if it's Ramadan for Umm al-Qura convention
+    ramadan = False
+    if convention == 'Makkah':
+        ramadan = is_ramadan(date_obj)
 
     # Calculate prayer times
-    prayer_times = calculate_prayer_times(Y, M, D, latitude, longitude, timezone_offset, asr_method)
+    prayer_times = calculate_prayer_times(Y, M, D, latitude, longitude, timezone_offset, asr_method, convention, ramadan)
 
     # Display prayer times
     result = f"Prayer times for {date_str} at latitude {latitude}°, longitude {longitude}°:\n"
@@ -332,16 +382,34 @@ asr_var = tk.StringVar(value='Standard')
 tk.Radiobutton(root, text="Standard (Shadow Ratio 1)", variable=asr_var, value='Standard').grid(row=4, column=1, sticky=tk.W)
 tk.Radiobutton(root, text="Hanafi (Shadow Ratio 2)", variable=asr_var, value='Hanafi').grid(row=5, column=1, sticky=tk.W)
 
+# Convention selection
+tk.Label(root, text="Calculation Convention:").grid(row=6, column=0, sticky=tk.W)
+convention_var = tk.StringVar(value='MWL')
+conventions_list = [
+    ('Muslim World League', 'MWL'),
+    ('Islamic Society of North America (ISNA)', 'ISNA'),
+    ('Egyptian General Authority of Survey', 'Egypt'),
+    ('Umm al-Qura University, Makkah', 'Makkah'),
+    ('University of Islamic Sciences, Karachi', 'Karachi'),
+    ('Institute of Geophysics, Tehran', 'Tehran'),
+]
+row = 6
+for text, value in conventions_list:
+    tk.Radiobutton(root, text=text, variable=convention_var, value=value).grid(row=row, column=1, sticky=tk.W)
+    row += 1
+
 # Auto-fill location button
 auto_location_button = tk.Button(root, text="Auto-detect Location", command=auto_fill_location)
-auto_location_button.grid(row=6, column=0, columnspan=2, pady=5)
+auto_location_button.grid(row=row, column=0, columnspan=2, pady=5)
+row += 1
 
 # Detected location label
 location_label = tk.Label(root, text="")
-location_label.grid(row=7, column=0, columnspan=2)
+location_label.grid(row=row, column=0, columnspan=2)
+row += 1
 
 # Calculate button
 calculate_button = tk.Button(root, text="Calculate Prayer Times", command=calculate_and_display_prayer_times)
-calculate_button.grid(row=8, column=0, columnspan=2, pady=10)
+calculate_button.grid(row=row, column=0, columnspan=2, pady=10)
 
 root.mainloop()
