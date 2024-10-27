@@ -1,6 +1,6 @@
 import math
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import ttk, messagebox
 from datetime import datetime, timedelta
 import requests
 from timezonefinder import TimezoneFinder
@@ -215,9 +215,13 @@ def calculate_prayer_times(Y, M, D, latitude, longitude, timezone_offset, asr_me
     delta_rad = math.radians(declination)
 
     # Compute the angle for Asr
-    # h = arccot(asr_shadow_ratio + tan(|phi - delta|))
-    # arccot(x) = arctan(1 / x)
-    denominator = asr_shadow_ratio + math.tan(abs(phi_rad - delta_rad))
+    tan_phi_delta = math.tan(phi_rad - delta_rad)
+    denominator = asr_shadow_ratio + tan_phi_delta
+
+    # Handle cases where the denominator might be zero or negative
+    if denominator <= 0:
+        denominator = asr_shadow_ratio + abs(tan_phi_delta)
+
     h_asr_rad = math.atan(1 / denominator)
     h_asr = math.degrees(h_asr_rad)
 
@@ -310,9 +314,13 @@ def calculate_and_display_prayer_times():
     if timezone_str:
         timezone = pytz.timezone(timezone_str)
         timezone_offset = timezone.utcoffset(datetime.now()).total_seconds() / 3600.0
+        timezone_offset_entry.config(state='normal')
+        timezone_offset_entry.delete(0, tk.END)
+        timezone_offset_entry.insert(0, f"{timezone_offset}")
+        timezone_offset_entry.config(state='readonly')
     else:
         try:
-            timezone_offset = float(timezone_entry.get())
+            timezone_offset = float(timezone_offset_entry.get())
         except ValueError:
             messagebox.showerror("Invalid Timezone", "Please enter a valid number for timezone offset.")
             return
@@ -331,7 +339,15 @@ def calculate_and_display_prayer_times():
     result = f"Prayer times for {date_str} at latitude {latitude}°, longitude {longitude}°:\n"
     for prayer, time in prayer_times.items():
         result += f"{prayer}: {format_time(time)}\n"
-    messagebox.showinfo("Prayer Times", result)
+
+    # Show results in a new window
+    result_window = tk.Toplevel(root)
+    result_window.title("Prayer Times")
+    result_window.resizable(False, False)
+    ttk.Label(result_window, text=f"Prayer Times for {date_str}", font=("Arial", 14, "bold")).pack(pady=10)
+    for prayer, time in prayer_times.items():
+        ttk.Label(result_window, text=f"{prayer}: {format_time(time)}", font=("Arial", 12)).pack()
+    ttk.Button(result_window, text="Close", command=result_window.destroy).pack(pady=10)
 
 def auto_fill_location():
     latitude, longitude, city = get_location()
@@ -344,46 +360,77 @@ def auto_fill_location():
         # Get timezone
         timezone_str = get_timezone(latitude, longitude)
         if timezone_str:
-            timezone_entry.delete(0, tk.END)
+            timezone_offset_entry.config(state='normal')
             timezone = pytz.timezone(timezone_str)
             timezone_offset = timezone.utcoffset(datetime.now()).total_seconds() / 3600.0
-            timezone_entry.insert(0, f"{timezone_offset}")
+            timezone_offset_entry.delete(0, tk.END)
+            timezone_offset_entry.insert(0, f"{timezone_offset}")
+            timezone_offset_entry.config(state='readonly')
     else:
         messagebox.showwarning("Location Error", "Could not detect location automatically.")
 
 # Main window
 root = tk.Tk()
-root.title("Prayer Times Calculator")
+root.title("Islamic Prayer Times Calculator")
+root.resizable(False, False)
+
+# Set style theme
+style = ttk.Style()
+style.theme_use('clam')  # Options: 'clam', 'alt', 'default', 'classic'
+
+# Main frame
+main_frame = ttk.Frame(root, padding="10")
+main_frame.grid(row=0, column=0, sticky=(tk.N, tk.W, tk.E, tk.S))
+
+# Title label
+ttk.Label(main_frame, text="Islamic Prayer Times Calculator", font=("Arial", 16, "bold")).grid(row=0, column=0, columnspan=2, pady=(0, 10))
 
 # Date input
-tk.Label(root, text="Date (YYYY-MM-DD):").grid(row=0, column=0, sticky=tk.W)
-date_entry = tk.Entry(root)
-date_entry.grid(row=0, column=1)
+date_frame = ttk.Labelframe(main_frame, text="Date", padding="10")
+date_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E))
+date_entry = ttk.Entry(date_frame, width=15)
+date_entry.grid(row=0, column=1, padx=5, pady=5)
 date_entry.insert(0, datetime.now().strftime('%Y-%m-%d'))
+ttk.Label(date_frame, text="Date (YYYY-MM-DD):").grid(row=0, column=0, sticky=tk.W)
 
-# Latitude input
-tk.Label(root, text="Latitude:").grid(row=1, column=0, sticky=tk.W)
-lat_entry = tk.Entry(root)
-lat_entry.grid(row=1, column=1)
+# Location input
+location_frame = ttk.Labelframe(main_frame, text="Location", padding="10")
+location_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E))
 
-# Longitude input
-tk.Label(root, text="Longitude:").grid(row=2, column=0, sticky=tk.W)
-lon_entry = tk.Entry(root)
-lon_entry.grid(row=2, column=1)
+ttk.Label(location_frame, text="Latitude:").grid(row=0, column=0, sticky=tk.W)
+lat_entry = ttk.Entry(location_frame, width=20)
+lat_entry.grid(row=0, column=1, padx=5, pady=5)
 
-# Timezone offset input
-tk.Label(root, text="Timezone Offset (hours):").grid(row=3, column=0, sticky=tk.W)
-timezone_entry = tk.Entry(root)
-timezone_entry.grid(row=3, column=1)
+ttk.Label(location_frame, text="Longitude:").grid(row=1, column=0, sticky=tk.W)
+lon_entry = ttk.Entry(location_frame, width=20)
+lon_entry.grid(row=1, column=1, padx=5, pady=5)
+
+location_label = ttk.Label(location_frame, text="")
+location_label.grid(row=2, column=0, columnspan=2)
+
+auto_location_button = ttk.Button(location_frame, text="Auto-detect Location", command=auto_fill_location)
+auto_location_button.grid(row=3, column=0, columnspan=2, pady=5)
+
+# Timezone input
+timezone_frame = ttk.Labelframe(main_frame, text="Timezone", padding="10")
+timezone_frame.grid(row=3, column=0, columnspan=2, sticky=(tk.W, tk.E))
+
+ttk.Label(timezone_frame, text="Timezone Offset (hours):").grid(row=0, column=0, sticky=tk.W)
+timezone_offset_entry = ttk.Entry(timezone_frame, width=10)
+timezone_offset_entry.grid(row=0, column=1, padx=5, pady=5)
 
 # Asr method selection
-tk.Label(root, text="Asr Calculation Method:").grid(row=4, column=0, sticky=tk.W)
+asr_frame = ttk.Labelframe(main_frame, text="Asr Calculation Method", padding="10")
+asr_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E))
+
 asr_var = tk.StringVar(value='Standard')
-tk.Radiobutton(root, text="Standard (Shadow Ratio 1)", variable=asr_var, value='Standard').grid(row=4, column=1, sticky=tk.W)
-tk.Radiobutton(root, text="Hanafi (Shadow Ratio 2)", variable=asr_var, value='Hanafi').grid(row=5, column=1, sticky=tk.W)
+ttk.Radiobutton(asr_frame, text="Standard (Shadow Ratio 1)", variable=asr_var, value='Standard').grid(row=0, column=0, sticky=tk.W)
+ttk.Radiobutton(asr_frame, text="Hanafi (Shadow Ratio 2)", variable=asr_var, value='Hanafi').grid(row=0, column=1, sticky=tk.W)
 
 # Convention selection
-tk.Label(root, text="Calculation Convention:").grid(row=6, column=0, sticky=tk.W)
+convention_frame = ttk.Labelframe(main_frame, text="Calculation Convention", padding="10")
+convention_frame.grid(row=5, column=0, columnspan=2, sticky=(tk.W, tk.E))
+
 convention_var = tk.StringVar(value='MWL')
 conventions_list = [
     ('Muslim World League', 'MWL'),
@@ -393,23 +440,14 @@ conventions_list = [
     ('University of Islamic Sciences, Karachi', 'Karachi'),
     ('Institute of Geophysics, Tehran', 'Tehran'),
 ]
-row = 6
-for text, value in conventions_list:
-    tk.Radiobutton(root, text=text, variable=convention_var, value=value).grid(row=row, column=1, sticky=tk.W)
-    row += 1
-
-# Auto-fill location button
-auto_location_button = tk.Button(root, text="Auto-detect Location", command=auto_fill_location)
-auto_location_button.grid(row=row, column=0, columnspan=2, pady=5)
-row += 1
-
-# Detected location label
-location_label = tk.Label(root, text="")
-location_label.grid(row=row, column=0, columnspan=2)
-row += 1
+for idx, (text, value) in enumerate(conventions_list):
+    ttk.Radiobutton(convention_frame, text=text, variable=convention_var, value=value).grid(row=idx, column=0, sticky=tk.W, padx=5, pady=2)
 
 # Calculate button
-calculate_button = tk.Button(root, text="Calculate Prayer Times", command=calculate_and_display_prayer_times)
-calculate_button.grid(row=row, column=0, columnspan=2, pady=10)
+calculate_button = ttk.Button(main_frame, text="Calculate Prayer Times", command=calculate_and_display_prayer_times)
+calculate_button.grid(row=6, column=0, columnspan=2, pady=15)
+
+# Footer
+ttk.Label(main_frame, text="Developed by Salim Omar Al-Yahyaei", font=("Arial", 8)).grid(row=7, column=0, columnspan=2)
 
 root.mainloop()
